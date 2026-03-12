@@ -144,11 +144,25 @@
         import { getFirestore, collection, addDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // --- Firebaseの設定 ---
-        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
-        const app = initializeApp(firebaseConfig);
-        const auth = getAuth(app);
-        const db = getFirestore(app);
+        const firebaseConfigStr = typeof __firebase_config !== 'undefined' ? __firebase_config : '{}';
+        let firebaseConfig = {};
+        try {
+            firebaseConfig = JSON.parse(firebaseConfigStr);
+        } catch (e) {
+            console.error("Firebase config parsing error");
+        }
+        
+        // 有効なAPIキーがあるか（ローカル実行時は設定がないためfalseになる）
+        const isFirebaseConfigured = !!firebaseConfig.apiKey;
+        
+        let app, auth, db;
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+        if (isFirebaseConfigured) {
+            app = initializeApp(firebaseConfig);
+            auth = getAuth(app);
+            db = getFirestore(app);
+        }
 
         let currentUser = null;
         let unsubscribeRankings = null;
@@ -208,6 +222,7 @@
 
         // --- Firebaseの認証処理 ---
         const initAuth = async () => {
+            if (!isFirebaseConfigured) return;
             try {
                 if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
                     await signInWithCustomToken(auth, __initial_auth_token);
@@ -220,20 +235,21 @@
         };
 
         // 認証状態の監視
-        onAuthStateChanged(auth, (user) => {
-            currentUser = user;
-            if (user) {
-                setupFirestoreListeners();
-            } else {
-                if (unsubscribeRankings) unsubscribeRankings();
-            }
-        });
-
-        initAuth();
+        if (isFirebaseConfigured) {
+            onAuthStateChanged(auth, (user) => {
+                currentUser = user;
+                if (user) {
+                    setupFirestoreListeners();
+                } else {
+                    if (unsubscribeRankings) unsubscribeRankings();
+                }
+            });
+            initAuth();
+        }
 
         // --- Firestoreのデータ監視設定 ---
         function setupFirestoreListeners() {
-            if (!currentUser) return;
+            if (!currentUser || !isFirebaseConfigured) return;
 
             // みんなで共有するパブリックデータとして保存
             const rankingsRef = collection(db, 'artifacts', appId, 'public', 'data', 'minesweeper_rankings');
@@ -645,10 +661,10 @@
             mineCounterElement.textContent = sign + String(Math.abs(remaining)).padStart(2, '0');
         }
 
-        // --- ランキング処理（Firestoreへの保存） ---
+        // --- ランキング処理（Firestoreへの保存またはローカル保存） ---
         
         async function registerScore() {
-            if (hasSubmittedScore || !currentUser) return;
+            if (hasSubmittedScore) return;
 
             // ボタンを無効化して連続クリックを防止
             submitScoreBtn.disabled = true;
@@ -666,24 +682,33 @@
                 timestamp: Date.now()
             };
 
-            try {
-                // クラウド上のコレクションにデータを追加
-                const rankingsRef = collection(db, 'artifacts', appId, 'public', 'data', 'minesweeper_rankings');
-                await addDoc(rankingsRef, scoreData);
-                
+            // Firebase設定があり、ユーザー認証済みならクラウドへ保存
+            if (isFirebaseConfigured && currentUser) {
+                try {
+                    const rankingsRef = collection(db, 'artifacts', appId, 'public', 'data', 'minesweeper_rankings');
+                    await addDoc(rankingsRef, scoreData);
+                    hasSubmittedScore = true;
+                } catch (error) {
+                    console.error("スコア保存エラー: ", error);
+                }
+            } else {
+                // Firebase設定がない場合（ローカル実行時）はメモリ上に保存して表示する
+                rankings[currentDifficulty].push(scoreData);
+                rankings[currentDifficulty].sort((a, b) => a.time - b.time);
+                rankings[currentDifficulty] = rankings[currentDifficulty].slice(0, 5);
                 hasSubmittedScore = true;
-
+            }
+            
+            if (hasSubmittedScore) {
                 // UIの切り替え
                 scoreEntryArea.classList.add('hidden');
                 updateClearRankingDisplay();
                 clearRankingDisplay.classList.remove('hidden');
-            } catch (error) {
-                console.error("スコア保存エラー: ", error);
-            } finally {
-                // ボタンの状態を戻す
-                submitScoreBtn.disabled = false;
-                submitScoreBtn.textContent = '登録';
             }
+
+            // ボタンの状態を戻す
+            submitScoreBtn.disabled = false;
+            submitScoreBtn.textContent = '登録';
         }
 
         // クリア画面内にランキングを描画する関数
