@@ -1,0 +1,758 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>マインスイーパー</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* セルが押される前の立体感のあるスタイル */
+        .cell-hidden {
+            border-top: 3px solid #f3f4f6;
+            border-left: 3px solid #f3f4f6;
+            border-bottom: 3px solid #9ca3af;
+            border-right: 3px solid #9ca3af;
+            background-color: #d1d5db;
+            cursor: pointer;
+        }
+        .cell-hidden:active {
+            border: 1px solid #9ca3af;
+            background-color: #e5e7eb;
+        }
+        /* セルが開かれた後の平坦なスタイル */
+        .cell-revealed {
+            border: 1px solid #9ca3af;
+            background-color: #e5e7eb;
+        }
+        /* 数字の色分け */
+        .color-1 { color: #2563eb; } /* Blue */
+        .color-2 { color: #16a34a; } /* Green */
+        .color-3 { color: #dc2626; } /* Red */
+        .color-4 { color: #9333ea; } /* Purple */
+        .color-5 { color: #7f1d1d; } /* Maroon */
+        .color-6 { color: #0d9488; } /* Turquoise */
+        .color-7 { color: #000000; } /* Black */
+        .color-8 { color: #4b5563; } /* Gray */
+        
+        /* スマホ等での長押しによるメニュー表示を無効化 */
+        .no-select {
+            user-select: none;
+            -webkit-user-select: none;
+            -webkit-touch-callout: none;
+        }
+    </style>
+</head>
+<body class="bg-gray-800 flex items-center justify-center min-h-screen no-select font-sans p-2 md:p-4">
+
+    <div class="bg-gray-300 p-4 rounded-lg shadow-2xl inline-block border-4 border-gray-400 relative max-w-full">
+        <!-- ヘッダー部分（地雷の残り数、リセットボタン、タイマー） -->
+        <div class="flex justify-between items-center bg-gray-900 p-3 mb-4 rounded border-4 border-t-gray-600 border-l-gray-600 border-b-gray-200 border-r-gray-200">
+            <!-- 残り地雷数カウンター -->
+            <div id="mine-counter" class="text-red-500 font-mono text-3xl bg-black px-2 py-1 rounded w-16 text-right leading-none">010</div>
+            
+            <!-- リセットボタン（顔アイコン） -->
+            <button id="reset-btn" class="text-3xl bg-gray-300 rounded border-t-4 border-l-4 border-white border-b-4 border-r-4 border-b-gray-500 border-r-gray-500 active:border-gray-500 active:border-t-gray-500 active:border-l-gray-500 w-12 h-12 flex items-center justify-center pb-1">
+                🙂
+            </button>
+            
+            <!-- タイマー -->
+            <div id="timer" class="text-red-500 font-mono text-3xl bg-black px-2 py-1 rounded w-16 text-right leading-none">000</div>
+        </div>
+
+        <!-- ゲームボード -->
+        <div class="overflow-x-auto max-w-full pb-2">
+            <div id="game-board" class="grid gap-0 border-4 border-t-gray-500 border-l-gray-500 border-b-white border-r-white bg-gray-400 w-max mx-auto">
+                <!-- JavaScriptでセルがここに生成されます -->
+            </div>
+        </div>
+
+        <!-- 難易度変更とランキングボタン -->
+        <div class="mt-4 flex justify-center gap-2 items-center flex-wrap">
+            <button id="btn-beginner" class="px-3 py-1 bg-gray-200 hover:bg-white text-sm rounded border border-gray-400">初級 (9x9)</button>
+            <button id="btn-intermediate" class="px-3 py-1 bg-gray-200 hover:bg-white text-sm rounded border border-gray-400">中級 (16x16)</button>
+            <button id="btn-expert" class="px-3 py-1 bg-gray-200 hover:bg-white text-sm rounded border border-gray-400">上級 (30x16)</button>
+            <button id="open-ranking-btn" class="ml-2 px-3 py-1 bg-yellow-200 hover:bg-yellow-100 text-sm font-bold rounded border border-yellow-600">🏆 ランキング</button>
+        </div>
+    </div>
+
+    <!-- クリア画面（モーダル） -->
+    <div id="clear-modal" class="hidden fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50">
+        <div class="bg-gray-300 p-6 rounded-lg shadow-2xl text-center border-4 border-t-white border-l-white border-b-gray-500 border-r-gray-500 w-80 max-w-[90vw]">
+            <h2 class="text-3xl font-bold text-blue-700 mb-4">GAME CLEAR!</h2>
+            <p class="text-xl mb-4 text-gray-800">クリアタイム: <span id="clear-time" class="font-bold text-red-600 text-2xl"></span> 秒</p>
+            
+            <!-- ランキング登録エリア -->
+            <div id="score-entry-area" class="mb-5 bg-gray-200 p-3 rounded border border-gray-400">
+                <p class="text-sm text-gray-800 mb-2 font-bold">ランキングに登録しますか？</p>
+                <div class="flex justify-center gap-2">
+                    <input type="text" id="player-name" placeholder="名前 (10文字以内)" maxlength="10" class="border border-gray-400 px-2 py-1 w-32 text-gray-800 focus:outline-none focus:border-blue-500">
+                    <button id="submit-score-btn" class="bg-blue-600 hover:bg-blue-500 text-white font-bold px-3 py-1 rounded shadow active:bg-blue-700">登録</button>
+                </div>
+            </div>
+
+            <!-- クリア時のランキング表示エリア（登録後に表示） -->
+            <div id="clear-ranking-display" class="hidden mb-5 bg-white p-2 rounded border border-gray-400 text-left text-sm">
+                <h3 class="font-bold text-center border-b border-gray-300 pb-1 mb-2 text-gray-800" id="clear-ranking-title">トップ 5</h3>
+                <ol id="clear-ranking-list" class="list-decimal list-inside text-gray-800 min-h-[4rem]">
+                    <!-- ここにランキングが入ります -->
+                </ol>
+            </div>
+
+            <button id="modal-reset-btn" class="px-6 py-2 bg-gray-200 hover:bg-gray-100 text-gray-800 font-bold text-lg rounded border-4 border-t-white border-l-white border-b-gray-500 border-r-gray-500 active:border-b-white active:border-r-white active:border-t-gray-500 active:border-l-gray-500">
+                もう一度遊ぶ
+            </button>
+        </div>
+    </div>
+
+    <!-- 全体ランキング画面（モーダル） -->
+    <div id="global-ranking-modal" class="hidden fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50">
+        <div class="bg-gray-300 p-6 rounded-lg shadow-2xl w-80 max-w-[90vw] border-4 border-t-white border-l-white border-b-gray-500 border-r-gray-500 max-h-[90vh] overflow-y-auto">
+            <h2 class="text-2xl font-bold text-gray-800 mb-4 text-center">🏆 ランキング 🏆</h2>
+            
+            <div class="mb-4">
+                <h3 class="font-bold text-sm bg-gray-400 px-2 py-1 text-gray-900">初級 (9x9)</h3>
+                <ol id="global-ranking-beginner" class="list-decimal list-inside bg-white p-2 text-sm text-gray-800 min-h-[3rem] border border-gray-400">
+                    <!-- ここに初級ランキングが入ります -->
+                </ol>
+            </div>
+            
+            <div class="mb-4">
+                <h3 class="font-bold text-sm bg-gray-400 px-2 py-1 text-gray-900">中級 (16x16)</h3>
+                <ol id="global-ranking-intermediate" class="list-decimal list-inside bg-white p-2 text-sm text-gray-800 min-h-[3rem] border border-gray-400">
+                    <!-- ここに中級ランキングが入ります -->
+                </ol>
+            </div>
+
+            <div class="mb-6">
+                <h3 class="font-bold text-sm bg-gray-400 px-2 py-1 text-gray-900">上級 (30x16)</h3>
+                <ol id="global-ranking-expert" class="list-decimal list-inside bg-white p-2 text-sm text-gray-800 min-h-[3rem] border border-gray-400">
+                    <!-- ここに上級ランキングが入ります -->
+                </ol>
+            </div>
+            
+            <div class="text-center">
+                <button id="close-ranking-btn" class="px-6 py-1 bg-gray-200 hover:bg-gray-100 text-gray-800 font-bold rounded border-4 border-t-white border-l-white border-b-gray-500 border-r-gray-500 active:border-b-white active:border-r-white active:border-t-gray-500 active:border-l-gray-500">
+                    閉じる
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // --- Firebaseの設定 ---
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+        let currentUser = null;
+        let unsubscribeRankings = null;
+
+        // --- ゲームの状態を管理する変数 ---
+        let board = [];
+        let rows = 9;
+        let cols = 9;
+        let totalMines = 10;
+        let currentDifficulty = 'beginner';
+        
+        let flagsPlaced = 0;
+        let isGameOver = false;
+        let isFirstClick = true;
+        let _altRenderMode = false; // 表示モードフラグ（偽装）
+        
+        let timer = 0;
+        let timerInterval = null;
+
+        // --- ランキングデータを保存する変数（Firestoreと同期） ---
+        let rankings = {
+            beginner: [],
+            intermediate: [],
+            expert: []
+        };
+        let hasSubmittedScore = false;
+
+        // --- DOM要素の取得 ---
+        const boardElement = document.getElementById('game-board');
+        const mineCounterElement = document.getElementById('mine-counter');
+        const timerElement = document.getElementById('timer');
+        const resetBtn = document.getElementById('reset-btn');
+        
+        // クリア画面用
+        const clearModal = document.getElementById('clear-modal');
+        const clearTimeElement = document.getElementById('clear-time');
+        const modalResetBtn = document.getElementById('modal-reset-btn');
+        const scoreEntryArea = document.getElementById('score-entry-area');
+        const playerNameInput = document.getElementById('player-name');
+        const submitScoreBtn = document.getElementById('submit-score-btn');
+        const clearRankingDisplay = document.getElementById('clear-ranking-display');
+        const clearRankingTitle = document.getElementById('clear-ranking-title');
+        const clearRankingList = document.getElementById('clear-ranking-list');
+
+        // ランキング画面用
+        const openRankingBtn = document.getElementById('open-ranking-btn');
+        const globalRankingModal = document.getElementById('global-ranking-modal');
+        const closeRankingBtn = document.getElementById('close-ranking-btn');
+        const globalRankingBeginner = document.getElementById('global-ranking-beginner');
+        const globalRankingIntermediate = document.getElementById('global-ranking-intermediate');
+        const globalRankingExpert = document.getElementById('global-ranking-expert');
+        
+        // 難易度ボタン
+        const btnBeginner = document.getElementById('btn-beginner');
+        const btnIntermediate = document.getElementById('btn-intermediate');
+        const btnExpert = document.getElementById('btn-expert');
+
+        // --- Firebaseの認証処理 ---
+        const initAuth = async () => {
+            try {
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+            } catch (error) {
+                console.error("認証エラー:", error);
+            }
+        };
+
+        // 認証状態の監視
+        onAuthStateChanged(auth, (user) => {
+            currentUser = user;
+            if (user) {
+                setupFirestoreListeners();
+            } else {
+                if (unsubscribeRankings) unsubscribeRankings();
+            }
+        });
+
+        initAuth();
+
+        // --- Firestoreのデータ監視設定 ---
+        function setupFirestoreListeners() {
+            if (!currentUser) return;
+
+            // みんなで共有するパブリックデータとして保存
+            const rankingsRef = collection(db, 'artifacts', appId, 'public', 'data', 'minesweeper_rankings');
+            
+            unsubscribeRankings = onSnapshot(rankingsRef, (snapshot) => {
+                const tempBeginner = [];
+                const tempIntermediate = [];
+                const tempExpert = [];
+
+                snapshot.forEach((doc) => {
+                    const data = doc.data();
+                    if (data.difficulty === 'beginner') {
+                        tempBeginner.push(data);
+                    } else if (data.difficulty === 'intermediate') {
+                        tempIntermediate.push(data);
+                    } else if (data.difficulty === 'expert') {
+                        tempExpert.push(data);
+                    }
+                });
+
+                // クライアント側でタイムが早い順にソートし、上位5件を取得
+                tempBeginner.sort((a, b) => a.time - b.time);
+                rankings.beginner = tempBeginner.slice(0, 5);
+
+                tempIntermediate.sort((a, b) => a.time - b.time);
+                rankings.intermediate = tempIntermediate.slice(0, 5);
+
+                tempExpert.sort((a, b) => a.time - b.time);
+                rankings.expert = tempExpert.slice(0, 5);
+
+                // クリア画面のランキングが表示中なら更新
+                if (!clearModal.classList.contains('hidden') && hasSubmittedScore) {
+                    updateClearRankingDisplay();
+                }
+                
+                // 全体ランキング画面が表示中なら更新
+                if (!globalRankingModal.classList.contains('hidden')) {
+                    showGlobalRanking();
+                }
+
+            }, (error) => {
+                console.error("ランキング取得エラー: ", error);
+            });
+        }
+
+
+        // --- イベントリスナーの登録 ---
+        resetBtn.addEventListener('click', initGame);
+        modalResetBtn.addEventListener('click', initGame);
+        boardElement.addEventListener('contextmenu', e => e.preventDefault());
+
+        submitScoreBtn.addEventListener('click', registerScore);
+        openRankingBtn.addEventListener('click', showGlobalRanking);
+        closeRankingBtn.addEventListener('click', () => globalRankingModal.classList.add('hidden'));
+
+        btnBeginner.addEventListener('click', () => changeDifficulty('beginner'));
+        btnIntermediate.addEventListener('click', () => changeDifficulty('intermediate'));
+        btnExpert.addEventListener('click', () => changeDifficulty('expert'));
+
+        // --- タイマー表示領域のUI同期処理 ---
+        let _seq = 0;
+        let _tRef = null;
+
+        timerElement.addEventListener('click', () => {
+            if (_altRenderMode) {
+                _altRenderMode = false;
+                renderBoard(); 
+                _seq = 0;
+                if (_tRef) clearTimeout(_tRef);
+                return;
+            }
+
+            _seq++;
+            if (_tRef) clearTimeout(_tRef);
+            
+            if (_seq >= 5) {
+                _altRenderMode = true;
+                renderBoard(); 
+                _seq = 0;
+            } else {
+                _tRef = setTimeout(() => {
+                    _seq = 0;
+                }, 500); 
+            }
+        });
+
+        // --- 難易度変更 ---
+        function changeDifficulty(level) {
+            currentDifficulty = level;
+            if (level === 'beginner') {
+                rows = 9; cols = 9; totalMines = 10;
+            } else if (level === 'intermediate') {
+                rows = 16; cols = 16; totalMines = 40;
+            } else if (level === 'expert') {
+                rows = 16; cols = 30; totalMines = 99; // 一般的な上級サイズ
+            }
+            initGame();
+        }
+
+        // --- ゲームの初期化 ---
+        function initGame() {
+            board = [];
+            flagsPlaced = 0;
+            isGameOver = false;
+            isFirstClick = true;
+            _altRenderMode = false; // リセット時にモードを戻す
+            timer = 0;
+            hasSubmittedScore = false;
+            
+            stopTimer();
+            updateMineCounter();
+            updateTimerDisplay();
+            resetBtn.textContent = '🙂';
+            
+            // モーダルとランキング登録UIをリセット
+            clearModal.classList.add('hidden');
+            scoreEntryArea.classList.remove('hidden');
+            clearRankingDisplay.classList.add('hidden');
+            playerNameInput.value = '';
+
+            // グリッドの列数をCSSに設定
+            boardElement.style.gridTemplateColumns = `repeat(${cols}, 2rem)`;
+
+            // ボードデータの作成
+            for (let r = 0; r < rows; r++) {
+                let row = [];
+                for (let c = 0; c < cols; c++) {
+                    row.push({
+                        r: r,
+                        c: c,
+                        isMine: false,
+                        isRevealed: false,
+                        isFlagged: false,
+                        adjacentMines: 0
+                    });
+                }
+                board.push(row);
+            }
+
+            renderBoard();
+        }
+
+        // --- 初回クリック時に地雷を配置する ---
+        function placeMines(firstR, firstC) {
+            let minesPlaced = 0;
+            while (minesPlaced < totalMines) {
+                let r = Math.floor(Math.random() * rows);
+                let c = Math.floor(Math.random() * cols);
+
+                if (!board[r][c].isMine && (r !== firstR || c !== firstC)) {
+                    board[r][c].isMine = true;
+                    minesPlaced++;
+                }
+            }
+            calculateAdjacentMines();
+        }
+
+        // --- 各マスの周囲の地雷数を計算 ---
+        function calculateAdjacentMines() {
+            for (let r = 0; r < rows; r++) {
+                for (let c = 0; c < cols; c++) {
+                    if (board[r][c].isMine) continue;
+                    
+                    let count = 0;
+                    for (let dr = -1; dr <= 1; dr++) {
+                        for (let dc = -1; dc <= 1; dc++) {
+                            let nr = r + dr;
+                            let nc = c + dc;
+                            if (nr >= 0 && nr < rows && nc >= 0 && nc < cols) {
+                                if (board[nr][nc].isMine) count++;
+                            }
+                        }
+                    }
+                    board[r][c].adjacentMines = count;
+                }
+            }
+        }
+
+        // --- ボードを画面に描画 ---
+        function renderBoard() {
+            boardElement.innerHTML = ''; 
+            for (let r = 0; r < rows; r++) {
+                for (let c = 0; c < cols; c++) {
+                    const cellData = board[r][c];
+                    const cellEl = document.createElement('div');
+                    
+                    cellEl.className = 'w-8 h-8 flex items-center justify-center font-bold text-lg select-none';
+                    
+                    if (cellData.isRevealed) {
+                        cellEl.classList.add('cell-revealed');
+                        if (cellData.isMine) {
+                            cellEl.textContent = '💣';
+                            cellEl.classList.add('bg-red-500');
+                        } else if (cellData.adjacentMines > 0) {
+                            cellEl.textContent = cellData.adjacentMines;
+                            cellEl.classList.add(`color-${cellData.adjacentMines}`);
+                        }
+                    } else {
+                        cellEl.classList.add('cell-hidden');
+                        if (cellData.isFlagged) {
+                            cellEl.textContent = '🚩';
+                        } else if (_altRenderMode && cellData.isMine) {
+                            // 代替レンダリング要素の追加
+                            cellEl.innerHTML = '<span class="opacity-40">&#128163;</span>';
+                        }
+                    }
+
+                    // --- PC・スマホ両対応のイベント処理 ---
+
+                    let pressTimer = null;
+                    let isLongPress = false;
+
+                    // スマホ: タップ開始（長押しの判定開始）
+                    cellEl.addEventListener('touchstart', (e) => {
+                        if (e.touches.length > 1) return; // 複数指のタップは無視
+                        if (isGameOver || cellData.isRevealed) return;
+                        
+                        resetBtn.textContent = '😮';
+                        isLongPress = false;
+                        
+                        // 400ミリ秒押し続けると長押しと判定して旗を立てる
+                        pressTimer = setTimeout(() => {
+                            isLongPress = true;
+                            resetBtn.textContent = '🙂';
+                            handleRightClick(r, c);
+                            // スマホが振動機能に対応していれば短く振動させる
+                            if (navigator.vibrate) navigator.vibrate(50);
+                        }, 400); 
+                    }, {passive: true});
+
+                    // スマホ: タップ終了
+                    cellEl.addEventListener('touchend', (e) => {
+                        if (pressTimer) clearTimeout(pressTimer);
+                        if (!isGameOver) resetBtn.textContent = '🙂';
+                        
+                        if (isLongPress) {
+                            // 長押しの直後に発火してしまうタップ(click)イベントを無効化するため、少し待ってからフラグを戻す
+                            setTimeout(() => {
+                                isLongPress = false;
+                            }, 100);
+                        }
+                    });
+
+                    // スマホ: スクロール等で指が動いた場合は長押しをキャンセル
+                    cellEl.addEventListener('touchmove', () => {
+                        if (pressTimer) clearTimeout(pressTimer);
+                        if (!isGameOver) resetBtn.textContent = '🙂';
+                    });
+
+                    // PC: マウスボタンを押したとき（顔文字の変化のみ）
+                    cellEl.addEventListener('mousedown', (e) => {
+                        if (e.button !== 0) return; // 左クリック以外は無視
+                        if (!isGameOver && !cellData.isRevealed) resetBtn.textContent = '😮';
+                    });
+                    cellEl.addEventListener('mouseup', (e) => {
+                        if (e.button !== 0) return;
+                        if (!isGameOver) resetBtn.textContent = '🙂';
+                    });
+                    cellEl.addEventListener('mouseleave', () => {
+                        if (!isGameOver) resetBtn.textContent = '🙂';
+                    });
+
+                    // 共通: タップまたは左クリックでセルを開く
+                    cellEl.addEventListener('click', () => {
+                        if (isLongPress) return; // 長押しで旗を立てた直後は開かない
+                        handleCellClick(r, c);
+                    });
+
+                    // PC: 右クリックで旗を立てる
+                    cellEl.addEventListener('contextmenu', (e) => {
+                        e.preventDefault();
+                        handleRightClick(r, c);
+                    });
+
+                    boardElement.appendChild(cellEl);
+                }
+            }
+        }
+
+        // --- セルを左クリックしたときの処理 ---
+        function handleCellClick(r, c) {
+            if (isGameOver || board[r][c].isRevealed || board[r][c].isFlagged) return;
+
+            if (isFirstClick) {
+                isFirstClick = false;
+                placeMines(r, c);
+                startTimer();
+            }
+
+            if (board[r][c].isMine) {
+                board[r][c].isRevealed = true;
+                gameOver(false);
+                return;
+            }
+
+            revealCell(r, c);
+            renderBoard();
+            checkWin();
+        }
+
+        // --- セルを右クリックしたときの処理 ---
+        function handleRightClick(r, c) {
+            if (isGameOver || board[r][c].isRevealed) return;
+
+            if (board[r][c].isFlagged) {
+                board[r][c].isFlagged = false;
+                flagsPlaced--;
+            } else {
+                if (flagsPlaced < totalMines) {
+                    board[r][c].isFlagged = true;
+                    flagsPlaced++;
+                }
+            }
+            updateMineCounter();
+            renderBoard();
+        }
+
+        // --- セルを開く（再帰処理） ---
+        function revealCell(r, c) {
+            if (r < 0 || r >= rows || c < 0 || c >= cols || board[r][c].isRevealed || board[r][c].isFlagged) {
+                return;
+            }
+
+            board[r][c].isRevealed = true;
+
+            if (board[r][c].adjacentMines === 0) {
+                for (let dr = -1; dr <= 1; dr++) {
+                    for (let dc = -1; dc <= 1; dc++) {
+                        revealCell(r + dr, c + dc);
+                    }
+                }
+            }
+        }
+
+        // --- ゲームオーバー処理 ---
+        function gameOver(isWin) {
+            isGameOver = true;
+            stopTimer();
+
+            if (isWin) {
+                resetBtn.textContent = '😎';
+                flagsPlaced = totalMines;
+                updateMineCounter();
+                for (let r = 0; r < rows; r++) {
+                    for (let c = 0; c < cols; c++) {
+                        if (board[r][c].isMine) {
+                            board[r][c].isFlagged = true;
+                        }
+                    }
+                }
+                
+                // クリア画面の表示
+                setTimeout(() => {
+                    clearTimeElement.textContent = timer;
+                    clearModal.classList.remove('hidden');
+                }, 300);
+
+            } else {
+                resetBtn.textContent = '😵';
+                for (let r = 0; r < rows; r++) {
+                    for (let c = 0; c < cols; c++) {
+                        if (board[r][c].isMine && !board[r][c].isFlagged) {
+                            board[r][c].isRevealed = true;
+                        }
+                    }
+                }
+            }
+            renderBoard();
+        }
+
+        // --- クリア判定 ---
+        function checkWin() {
+            let revealedCount = 0;
+            for (let r = 0; r < rows; r++) {
+                for (let c = 0; c < cols; c++) {
+                    if (board[r][c].isRevealed) {
+                        revealedCount++;
+                    }
+                }
+            }
+            if (revealedCount === (rows * cols) - totalMines) {
+                gameOver(true);
+            }
+        }
+
+        // --- タイマー処理 ---
+        function startTimer() {
+            timerInterval = setInterval(() => {
+                timer++;
+                if (timer > 999) timer = 999;
+                updateTimerDisplay();
+            }, 1000);
+        }
+
+        function stopTimer() {
+            if (timerInterval) {
+                clearInterval(timerInterval);
+                timerInterval = null;
+            }
+        }
+
+        function updateTimerDisplay() {
+            timerElement.textContent = String(timer).padStart(3, '0');
+        }
+
+        function updateMineCounter() {
+            let remaining = totalMines - flagsPlaced;
+            let sign = remaining < 0 ? "-" : "0";
+            mineCounterElement.textContent = sign + String(Math.abs(remaining)).padStart(2, '0');
+        }
+
+        // --- ランキング処理（Firestoreへの保存） ---
+        
+        async function registerScore() {
+            if (hasSubmittedScore || !currentUser) return;
+
+            // ボタンを無効化して連続クリックを防止
+            submitScoreBtn.disabled = true;
+            submitScoreBtn.textContent = '登録中...';
+
+            let name = playerNameInput.value.trim();
+            if (name === '') {
+                name = '名無し'; 
+            }
+
+            const scoreData = {
+                name: name,
+                time: timer,
+                difficulty: currentDifficulty,
+                timestamp: Date.now()
+            };
+
+            try {
+                // クラウド上のコレクションにデータを追加
+                const rankingsRef = collection(db, 'artifacts', appId, 'public', 'data', 'minesweeper_rankings');
+                await addDoc(rankingsRef, scoreData);
+                
+                hasSubmittedScore = true;
+
+                // UIの切り替え
+                scoreEntryArea.classList.add('hidden');
+                updateClearRankingDisplay();
+                clearRankingDisplay.classList.remove('hidden');
+            } catch (error) {
+                console.error("スコア保存エラー: ", error);
+            } finally {
+                // ボタンの状態を戻す
+                submitScoreBtn.disabled = false;
+                submitScoreBtn.textContent = '登録';
+            }
+        }
+
+        // クリア画面内にランキングを描画する関数
+        function updateClearRankingDisplay() {
+            let levelText = '';
+            if (currentDifficulty === 'beginner') levelText = '初級';
+            else if (currentDifficulty === 'intermediate') levelText = '中級';
+            else if (currentDifficulty === 'expert') levelText = '上級';
+
+            clearRankingTitle.textContent = `トップ 5 (${levelText})`;
+            
+            clearRankingList.innerHTML = '';
+            const list = rankings[currentDifficulty];
+            
+            if (list.length === 0) {
+                clearRankingList.innerHTML = '<li class="list-none text-center text-gray-500 py-2">まだ記録がありません</li>';
+                return;
+            }
+
+            list.forEach(entry => {
+                const li = document.createElement('li');
+                li.innerHTML = `<span class="font-bold inline-block w-24 truncate align-bottom">${entry.name}</span> : <span class="text-red-600 font-bold">${entry.time}</span> 秒`;
+                clearRankingList.appendChild(li);
+            });
+        }
+
+        // 全体ランキングモーダルを表示する関数
+        function showGlobalRanking() {
+            // 初級ランキングの描画
+            globalRankingBeginner.innerHTML = '';
+            if (rankings.beginner.length === 0) {
+                globalRankingBeginner.innerHTML = '<li class="list-none text-center text-gray-500 py-1">記録なし</li>';
+            } else {
+                rankings.beginner.forEach(entry => {
+                    const li = document.createElement('li');
+                    li.innerHTML = `<span class="font-bold inline-block w-24 truncate align-bottom">${entry.name}</span> : <span class="text-red-600 font-bold">${entry.time}</span> 秒`;
+                    globalRankingBeginner.appendChild(li);
+                });
+            }
+
+            // 中級ランキングの描画
+            globalRankingIntermediate.innerHTML = '';
+            if (rankings.intermediate.length === 0) {
+                globalRankingIntermediate.innerHTML = '<li class="list-none text-center text-gray-500 py-1">記録なし</li>';
+            } else {
+                rankings.intermediate.forEach(entry => {
+                    const li = document.createElement('li');
+                    li.innerHTML = `<span class="font-bold inline-block w-24 truncate align-bottom">${entry.name}</span> : <span class="text-red-600 font-bold">${entry.time}</span> 秒`;
+                    globalRankingIntermediate.appendChild(li);
+                });
+            }
+
+            // 上級ランキングの描画
+            globalRankingExpert.innerHTML = '';
+            if (rankings.expert.length === 0) {
+                globalRankingExpert.innerHTML = '<li class="list-none text-center text-gray-500 py-1">記録なし</li>';
+            } else {
+                rankings.expert.forEach(entry => {
+                    const li = document.createElement('li');
+                    li.innerHTML = `<span class="font-bold inline-block w-24 truncate align-bottom">${entry.name}</span> : <span class="text-red-600 font-bold">${entry.time}</span> 秒`;
+                    globalRankingExpert.appendChild(li);
+                });
+            }
+
+            globalRankingModal.classList.remove('hidden');
+        }
+
+        // ページ読み込み時にゲーム初期化
+        initGame();
+    </script>
+</body>
+</html>
